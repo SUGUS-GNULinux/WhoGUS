@@ -26,36 +26,44 @@ def read_config_file():
     return cfg
 
 # Obtiene de un csv la información de los miembos de sugus y lo compara con los actualmente conectados
-def link_found_mac_users(cfg, known_users, detected_macs, unknown_macs):
+def link_found_mac_users(cfg, detected_macs):
     users_filename = cfg.get("usersfile", "route")
-
+    known_users = []
+    unknown_macs = []
     with open(users_filename, 'r') as csvfile:
         reader = csv.reader(csvfile, delimiter=';')
         next(reader, None)
         csvContain = []
         for a in reader:
-            csvContain.append(a)
+            if len(a) > 1:
+                mac = a[0].replace(" ", "")
+                if len(a) >= 3 and mac.count(":") == 5 and len(mac) == 17:
+                    csvContain.append(a)
+                else:
+                    print("Incorrect entry: \n" + str(a))
+
+        if len(csvContain) < 1:
+            print("No Mac found in :" + users_filename)
 
         for row in detected_macs:
             for user in csvContain:
-                if row[1].hwsrc == user[0].replace(" ", "").lower():
-                    if str2bool(user[1]) and user not in known_users:
+                if row == user[0].replace(" ", "").lower():
+                    toImprove = user not in known_users
+                    if str2bool(user[1]) and toImprove:
                         known_users.append(user)
                     break
             else:
-                if row[1].hwsrc not in unknown_macs:
-                    unknown_macs.append(row[1].hwsrc)
+                if row not in unknown_macs:
+                    unknown_macs.append(row)
 
-    print("Known Macs (Apróx): " + str(len(known_users)))
-    print("Unknown Macs (Apróx): " + str(len(unknown_macs)))
-
+    return known_users, set(unknown_macs)
 
 def str2bool(v):
   return v.lower().replace(" ", "") in ("yes", "true", "t", "1")
 
 
 #Realiza un escaneo ARP y filtra las MACs según aparezcan en users
-def get_connected_users(cfg, detected_macs):
+def get_connected_users(cfg):
 
     ipdst = cfg.get("request", "ipdst")
     timeout = int(cfg.get("request", "timeout"))
@@ -69,14 +77,17 @@ def get_connected_users(cfg, detected_macs):
         alive2, dead2 = srp(Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=ipdst), timeout=timeout, iface=interface, verbose=0)
 
         alive.extend(alive2)
-        # dead.extend(dead2)
 
-        detected_macs.extend(alive)
+        detected_macs = set()
+        for x in alive:
+            detected_macs.add(x[1].hwsrc)
 
     except:
-        print("Exception detected: ")
+        print("Exception detected during arp scan: ")
         print(traceback.print_exc())
-        pass
+        raise
+    else:
+        return detected_macs
 
 #Crea el archivo html con la información contenida en users y los parámetros del archivo de config.
 # def create_html(cfg):
@@ -107,14 +118,10 @@ def get_connected_users(cfg, detected_macs):
 #         new_file.write(str(page))
 
 
-def create_htmlMarkdown(cfg, known_users):
+def create_html_markdown(cfg, known_users):
     title = cfg.get("htmlfile", "title")
-    charset=cfg.get("htmlfile", "charset")
-    lang=cfg.get("htmlfile", "lang")
-    header=cfg.get("htmlfile", "header")
-    content=cfg.get("htmlfile", "content")
-
     html_filename = cfg.get("htmlfile", "route")
+
     html = """<!DOCTYPE HTML PUBLIC '-//W3C//DTD HTML 4.01 Transitional//EN'>
             <html lang="es">
                 <head>
@@ -124,8 +131,11 @@ def create_htmlMarkdown(cfg, known_users):
     html += "<body>\n<h2>\n" + "Miembros actualmente en la asociación:" + "\n</h2>\n"
     html += """<ul class="usuarios">\n"""
     if known_users:
+        toPrint = []
         for a in known_users:
-            html += "<li>" + a[2] + "</li>\n"
+            if a[2].strip() not in toPrint:
+                html += "<li>" + a[2].strip() + "</li>\n"
+                toPrint.append(a[2].strip())
     else:
          html += "<li>Parece que no hay nadie.</li>\n"
 
@@ -136,22 +146,46 @@ def create_htmlMarkdown(cfg, known_users):
 
     html += "</body>"
 
-    with codecs.open("newhtml.html", "w", encoding="utf-8", errors="xmlcharrefreplace") as file:
+    with codecs.open(html_filename, "w", encoding="utf-8", errors="xmlcharrefreplace") as file:
         file.write(str(html))
 
 
 def main():
-    detected_macs = []
-    known_users = []
-    unknown_macs = []
+    while True:
+        config = read_config_file()
 
-    config = read_config_file()
+        print("\n["+ str(time.strftime('%H:%M:%S')) + "] Scanning...")
+        try:
+            detected_macs = get_connected_users(config)
 
-    get_connected_users(config, detected_macs)
-    # create_html(config)
-    link_found_mac_users(config, known_users, detected_macs, unknown_macs)
+            # create_html(config)
+            known_users, unknown_macs = link_found_mac_users(config, detected_macs)
 
-    create_htmlMarkdown(config, known_users)
+            create_html_markdown(config, known_users)
+
+            print("["+ str(time.strftime('%H:%M:%S')) + "] Found " + str(len(detected_macs)-len(unknown_macs)) + " known_mac and "
+                  + str(len(unknown_macs)) + " unknown_macs")
+
+        except KeyboardInterrupt:
+            print("\nBye! \n")
+            break
+            pass
+        except:
+            print("Occur an error running the script: ")
+            print(traceback.print_exc())
+            pass
+
+        print("["+ str(time.strftime('%H:%M:%S')) + "] Sleeping")
+        try:
+            time_sleep = int(config.get("general", "time_between_scans_sec"))
+            time.sleep(time_sleep)
+        except KeyboardInterrupt:
+            print("\nBye! \n")
+            break
+            pass
+        except:
+            print("Error applying time_between_scans_sec: ")
+            raise
 
 if __name__ == '__main__':
     main()
