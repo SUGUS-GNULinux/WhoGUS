@@ -12,6 +12,8 @@ import sys, logging, time, csv, configparser, os
 #cambiar markup por lib.markup
 #from markup import *
 # import markdown as markdown
+import traceback
+
 import markup
 from datetime import timedelta, datetime
 
@@ -99,13 +101,20 @@ def get_connected_dhcp(cfg):
     sentence = cfg.get("dhcp", "sentence")
 
     try:
-        macs = os.popen(sentence).read()
-        print(macs)
+        macs = os.popen(sentence).read().split("\n")
+        # print(macs.split("\n"))
+        new_macs = []
+        for i in macs:
+            a = i.split(";")
+            if len(a)>1:
+                new_macs.append([a[0].strip(), a[1].strip()])
+
         detected_macs = set()
-        limit_moment = datetime.now() - timedelta(seconds=last_uptime_sec)
-        print("Fecha límite: " + str(limit_moment))
-        for x in macs:
+        limit_moment = datetime.utcnow() - timedelta(seconds=last_uptime_sec)
+        for x in new_macs:
+            # print("A leer: " + str(x) + "; actDate: " + limit_moment.strftime('%Y/%m/%d %H:%M:%S'))
             if x[0] > limit_moment.strftime('%Y/%m/%d %H:%M:%S'):
+                print("x: " + str(x))
                 detected_macs.add(x[1])
 
     except:
