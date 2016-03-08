@@ -1,0 +1,4 @@
+markup == 0.2
+pip == 8.0.2
+scapy_python3 == 0.18
+scapy == 2.3.2

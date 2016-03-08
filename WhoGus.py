@@ -7,17 +7,20 @@
 # fallaba. [1] http://markup.sourceforge.net/
 
 import codecs
-import sys, logging, time, csv, configparser
+import sys, logging, time, csv, configparser, os
 
 #cambiar markup por lib.markup
 #from markup import *
 # import markdown as markdown
 import markup
+from datetime import timedelta, datetime
+
+from pip._vendor.cachecontrol.caches.file_cache import _secure_open_write
 
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 from scapy.all import *
 
-config_route = "config.cfg"
+config_route = "myConfig.cfg"
 
 #Vuelca en una variable ConfigFile el contenido del archivo de config.
 def read_config_file():
@@ -62,8 +65,8 @@ def str2bool(v):
   return v.lower().replace(" ", "") in ("yes", "true", "t", "1")
 
 
-#Realiza un escaneo ARP y filtra las MACs según aparezcan en users
-def get_connected_users(cfg):
+#Realiza un escaneo ARP
+def get_connected_arp(cfg):
 
     ipdst = cfg.get("request", "ipdst")
     timeout = int(cfg.get("request", "timeout"))
@@ -84,6 +87,29 @@ def get_connected_users(cfg):
 
     except:
         print("Exception detected during arp scan: ")
+        print(traceback.print_exc())
+        raise
+    else:
+        return detected_macs
+
+# Comprueba el DHCP ejecutando la orden del archivo config
+def get_connected_dhcp(cfg):
+
+    last_uptime_sec = int(cfg.get("dhcp", "last_uptime_sec"))
+    sentence = cfg.get("dhcp", "sentence")
+
+    try:
+        macs = os.popen(sentence).read()
+        print(macs)
+        detected_macs = set()
+        limit_moment = datetime.now() - timedelta(seconds=last_uptime_sec)
+        print("Fecha límite: " + str(limit_moment))
+        for x in macs:
+            if x[0] > limit_moment.strftime('%Y/%m/%d %H:%M:%S'):
+                detected_macs.add(x[1])
+
+    except:
+        print("Exception detected during dhcp lecture: ")
         print(traceback.print_exc())
         raise
     else:
@@ -156,7 +182,15 @@ def main():
 
         print("\n["+ str(time.strftime('%H:%M:%S')) + "] Scanning...")
         try:
-            detected_macs = get_connected_users(config)
+            detected_macs = set()
+
+            # ARP scan
+            if str2bool(config.get("request", "active")):
+                detected_macs = get_connected_arp(config)
+
+            #DHCP check
+            if str2bool(config.get("dhcp","active")):
+                detected_macs = set(detected_macs | get_connected_dhcp(config))
 
             # create_html(config)
             known_users, unknown_macs = link_found_mac_users(config, detected_macs)
